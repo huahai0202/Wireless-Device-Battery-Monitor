@@ -49,31 +49,50 @@ int ReadBattery(HidDev& device, ULONGLONG deadline) {
         ReadId(reply, 4) != kVid || ReadId(reply, 6) != kMouse || reply[11] > 100) return -1;
     return reply[11];
 }
+
+int ReadCableBattery(HidDev& device) {
+    // The mouse's cable interface uses the identity channel directly. Unlike
+    // the receiver, it does not implement the bond/identify receiver commands.
+    if (!device.SetFeature({kFeature, kIdentify})) return -1;
+    std::vector<BYTE> reply;
+    if (!device.GetFeature(kFeature, reply) || reply.size() < 12 ||
+        reply[0] != kFeature || reply[1] != kIdentify || reply[2] != 1 ||
+        ReadId(reply, 4) != kVid || ReadId(reply, 6) != kMouse || reply[11] > 100)
+        return -1;
+    return reply[11];
+}
 }  // namespace
 
 void PollDarmoshark(PollContext& ctx) {
-    if (ctx.IsClaimed(kVid, kReceiver)) return;
-    for (const HidColl* coll : ctx.Find(kVid, kReceiver, [](const HidColl& c) {
-             return c.iface == 1 && c.page() == 0x008C && c.usage() == 1 &&
+    for (USHORT pid : {kReceiver, kMouse}) {
+      if (ctx.IsClaimed(kVid, pid)) continue;
+      for (const HidColl* coll : ctx.Find(kVid, pid, [pid](const HidColl& c) {
+             return c.iface == (pid == kReceiver ? 1 : 2) && c.page() == 0x008C && c.usage() == 1 &&
                     c.inLen() == 33 && c.outLen() == 33 && c.featLen() == 1001;
          })) {
-        const auto deadline = GetTickCount64() + kReceiverTimeoutMs;
         HidDev device;
         if (!device.Open(*coll)) continue;
 
-        // Leave time to reread the bond and retry if the first battery request goes unanswered.
-        const auto firstDeadline = (std::min)(deadline, GetTickCount64() + kFirstAttemptMs);
-        int percent = ReadBattery(device, firstDeadline);
-        if (percent < 0 && GetTickCount64() < deadline) percent = ReadBattery(device, deadline);
+        int percent = -1;
+        if (pid == kMouse) {
+            percent = ReadCableBattery(device);
+        } else {
+            const auto deadline = GetTickCount64() + kReceiverTimeoutMs;
+            // Leave time to reread the bond and retry if the first battery request goes unanswered.
+            const auto firstDeadline = (std::min)(deadline, GetTickCount64() + kFirstAttemptMs);
+            percent = ReadBattery(device, firstDeadline);
+            if (percent < 0 && GetTickCount64() < deadline) percent = ReadBattery(device, deadline);
+        }
         if (percent < 0) continue;
 
         DeviceStatus status;
         status.key = L"darmoshark:" + coll->path;
         status.name = L"Darmoshark M3";
         status.kind = DeviceKind::Mouse;
-        status.via = L"2.4 GHz receiver";
+        status.via = pid == kMouse ? L"USB cable" : L"2.4 GHz receiver";
         status.percent = percent;
-        ctx.Add(status, kVid, kReceiver);
-        return;
+        ctx.Add(status, kVid, pid);
+        break;
+      }
     }
 }
