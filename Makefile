@@ -6,6 +6,8 @@ CHANNEL  ?= dev
 .DEFAULT_GOAL := BatteryHub.exe
 CXXFLAGS ?= -std=c++17 -Os -Wall -Wno-missing-field-initializers -ffunction-sections -fdata-sections \
             -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00
+# Test binaries compile a few sources directly, so they need the Win10 API level too (BCryptHash).
+TESTFLAGS ?= -std=c++17 -O2 -Wall -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00
 LDFLAGS  ?= -municode -mwindows -static -s -Wl,--gc-sections
 LIBS     := -lhid -lsetupapi -lcfgmgr32 -lole32 -loleaut32 -lcomctl32 -lgdi32 -lruntimeobject -lws2_32 -lwinhttp -lbcrypt -lversion -lbluetoothapis
 
@@ -117,17 +119,17 @@ test: test-update-core test-update-win test-update-signature
 
 test-update-core:
 	@mkdir -p build
-	$(CXX) -std=c++17 -O2 -Wall tests/update_core_test.cpp src/update_core.cpp -o build/update_core_test.exe
+	$(CXX) $(TESTFLAGS) tests/update_core_test.cpp src/update_core.cpp -o build/update_core_test.exe
 	./build/update_core_test.exe
 
 test-update-signature: build/version.h
 	@mkdir -p build
-	$(CXX) -std=c++17 -O2 -Wall tests/update_signature_test.cpp src/update_signature.cpp -o build/update_signature_test.exe -lbcrypt
+	$(CXX) $(TESTFLAGS) tests/update_signature_test.cpp src/update_signature.cpp -o build/update_signature_test.exe -lbcrypt
 	./build/update_signature_test.exe
 
 test-update-win: build/version.h build/app_res.o
 	@mkdir -p build
-	$(CXX) -std=c++17 -O2 -Wall tests/update_win_test.cpp src/update_core.cpp src/update_signature.cpp src/i18n.cpp build/app_res.o \
+	$(CXX) $(TESTFLAGS) tests/update_win_test.cpp src/update_core.cpp src/update_signature.cpp src/i18n.cpp build/app_res.o \
 	    -o build/update_win_test.exe -lwinhttp -lbcrypt -lcomctl32 -lversion -lole32
 	./build/update_win_test.exe
 
